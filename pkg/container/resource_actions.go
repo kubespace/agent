@@ -1,11 +1,11 @@
 package container
 
 import (
-	"github.com/openspacee/ospagent/pkg/container/resource"
-	"github.com/openspacee/ospagent/pkg/kubernetes"
-	"github.com/openspacee/ospagent/pkg/ospserver"
-	"github.com/openspacee/ospagent/pkg/utils"
-	"github.com/openspacee/ospagent/pkg/websocket"
+	"github.com/kubespace/agent/pkg/container/resource"
+	"github.com/kubespace/agent/pkg/kubernetes"
+	"github.com/kubespace/agent/pkg/ospserver"
+	"github.com/kubespace/agent/pkg/utils"
+	"github.com/kubespace/agent/pkg/websocket"
 )
 
 const (

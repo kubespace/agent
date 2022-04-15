@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"github.com/openspacee/ospagent/pkg/config"
-	"github.com/openspacee/ospagent/pkg/core"
+	"github.com/kubespace/agent/pkg/config"
+	"github.com/kubespace/agent/pkg/core"
 	"k8s.io/klog"
 )
 

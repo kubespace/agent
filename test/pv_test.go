@@ -2,8 +2,8 @@ package test
 
 import (
 	"fmt"
-	"github.com/openspacee/ospagent/pkg/container/resource"
-	"github.com/openspacee/ospagent/pkg/kubernetes"
+	"github.com/kubespace/agent/pkg/container/resource"
+	"github.com/kubespace/agent/pkg/kubernetes"
 	"testing"
 )
 

@@ -3,9 +3,9 @@ package resource
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/openspacee/ospagent/pkg/kubernetes"
-	"github.com/openspacee/ospagent/pkg/utils"
-	"github.com/openspacee/ospagent/pkg/utils/code"
+	"github.com/kubespace/agent/pkg/kubernetes"
+	"github.com/kubespace/agent/pkg/utils"
+	"github.com/kubespace/agent/pkg/utils/code"
 	"k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

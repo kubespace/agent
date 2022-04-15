@@ -1,9 +1,9 @@
 package resource
 
 import (
-	"github.com/openspacee/ospagent/pkg/kubernetes"
-	"github.com/openspacee/ospagent/pkg/utils"
-	"github.com/openspacee/ospagent/pkg/utils/code"
+	"github.com/kubespace/agent/pkg/kubernetes"
+	"github.com/kubespace/agent/pkg/utils"
+	"github.com/kubespace/agent/pkg/utils/code"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"

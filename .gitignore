@@ -1,0 +1,15 @@
+.idea/*
+*.DS_Store
+.vscode/
+.idea/
+*.iml
+modules.xml
+misc.xml
+workspace.xml
+vcs.xml
+Project*.xml
+logs/*
+*.csv
+*.exe
+node_modules
+vue/dist/

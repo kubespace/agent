@@ -2,7 +2,7 @@ package utils
 
 import (
 	"encoding/json"
-	"github.com/openspacee/ospagent/pkg/utils/code"
+	"github.com/kubespace/agent/pkg/utils/code"
 )
 
 const (

@@ -2,9 +2,9 @@ package resource
 
 import (
 	"encoding/json"
-	"github.com/openspacee/ospagent/pkg/utils"
-	"github.com/openspacee/ospagent/pkg/utils/code"
-	"github.com/openspacee/ospagent/pkg/websocket"
+	"github.com/kubespace/agent/pkg/utils"
+	"github.com/kubespace/agent/pkg/utils/code"
+	"github.com/kubespace/agent/pkg/websocket"
 	"k8s.io/klog"
 	"sync"
 )

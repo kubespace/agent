@@ -1,12 +1,12 @@
 package core
 
 import (
-	"github.com/openspacee/ospagent/pkg/config"
-	"github.com/openspacee/ospagent/pkg/container"
-	"github.com/openspacee/ospagent/pkg/kubernetes"
-	"github.com/openspacee/ospagent/pkg/ospserver"
-	"github.com/openspacee/ospagent/pkg/utils"
-	"github.com/openspacee/ospagent/pkg/websocket"
+	"github.com/kubespace/agent/pkg/config"
+	"github.com/kubespace/agent/pkg/container"
+	"github.com/kubespace/agent/pkg/kubernetes"
+	"github.com/kubespace/agent/pkg/ospserver"
+	"github.com/kubespace/agent/pkg/utils"
+	"github.com/kubespace/agent/pkg/websocket"
 	"k8s.io/klog"
 	"net/url"
 )
