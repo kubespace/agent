@@ -23,26 +23,51 @@ type Ingress struct {
 	*DynamicResource
 }
 
+var (
+	NetworkIngressGVR = &schema.GroupVersionResource{
+		Group:    "networking",
+		Version:  "v1",
+		Resource: "ingresses",
+	}
+
+	ExtensionIngressGVR = &schema.GroupVersionResource{
+		Group:    "extensions",
+		Version:  "v1beta1",
+		Resource: "ingresses",
+	}
+)
+
 func NewIngress(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Ingress {
+	var dynamic *schema.GroupVersionResource
+	if kubernetes.VersionGreaterThan19(kubeClient.Version) {
+		dynamic = NetworkIngressGVR
+	} else {
+		dynamic = ExtensionIngressGVR
+	}
 	s := &Ingress{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "extensions",
-			Version:  "v1beta1",
-			Resource: "ingresses",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, dynamic),
 	}
 	s.DoWatch()
 	return s
 }
 
 func (i *Ingress) DoWatch() {
-	informer := i.KubeClient.IngressInformer().Informer()
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    i.watch.WatchAdd(utils.WatchIngress),
-		UpdateFunc: i.watch.WatchUpdate(utils.WatchIngress),
-		DeleteFunc: i.watch.WatchDelete(utils.WatchIngress),
-	})
+	if kubernetes.VersionGreaterThan19(i.KubeClient.Version) {
+		informer := i.KubeClient.NewIngressInformer().Informer()
+		informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc:    i.watch.WatchAdd(utils.WatchIngress),
+			UpdateFunc: i.watch.WatchUpdate(utils.WatchIngress),
+			DeleteFunc: i.watch.WatchDelete(utils.WatchIngress),
+		})
+	} else {
+		informer := i.KubeClient.IngressInformer().Informer()
+		informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc:    i.watch.WatchAdd(utils.WatchIngress),
+			UpdateFunc: i.watch.WatchUpdate(utils.WatchIngress),
+			DeleteFunc: i.watch.WatchDelete(utils.WatchIngress),
+		})
+	}
 }
 
 type BuildIngress struct {
@@ -97,27 +122,32 @@ func (i *Ingress) List(requestParams interface{}) *utils.Response {
 	} else {
 		selector = labels.Everything()
 	}
-	list, err := i.KubeClient.IngressInformer().Lister().Ingresses(queryParams.Namespace).List(selector)
-	if err != nil {
-		return &utils.Response{
-			Code: code.ListError,
-			Msg:  err.Error(),
+	if kubernetes.VersionGreaterThan19(i.KubeClient.Version) {
+
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: nil}
+	} else {
+		list, err := i.KubeClient.IngressInformer().Lister().Ingresses(queryParams.Namespace).List(selector)
+		if err != nil {
+			return &utils.Response{
+				Code: code.ListError,
+				Msg:  err.Error(),
+			}
 		}
+		var ingresss []*BuildIngress
+		for _, ds := range list {
+			if queryParams.UID != "" && string(ds.UID) != queryParams.UID {
+				continue
+			}
+			if queryParams.Namespace != "" && ds.Namespace != queryParams.Namespace {
+				continue
+			}
+			if queryParams.Name != "" && strings.Contains(ds.Name, queryParams.Name) {
+				continue
+			}
+			ingresss = append(ingresss, i.ToBuildIngress(ds))
+		}
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: ingresss}
 	}
-	var ingresss []*BuildIngress
-	for _, ds := range list {
-		if queryParams.UID != "" && string(ds.UID) != queryParams.UID {
-			continue
-		}
-		if queryParams.Namespace != "" && ds.Namespace != queryParams.Namespace {
-			continue
-		}
-		if queryParams.Name != "" && strings.Contains(ds.Name, queryParams.Name) {
-			continue
-		}
-		ingresss = append(ingresss, i.ToBuildIngress(ds))
-	}
-	return &utils.Response{Code: code.Success, Msg: "Success", Data: ingresss}
 }
 
 func (i *Ingress) Get(requestParams interface{}) *utils.Response {

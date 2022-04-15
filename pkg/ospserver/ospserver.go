@@ -2,13 +2,10 @@ package ospserver
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"github.com/kubespace/agent/pkg/utils"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
-	"k8s.io/klog"
 	"net/url"
 )
 
@@ -28,28 +25,12 @@ func NewOspServer(url *url.URL) (*OspServer, error) {
 	}, nil
 }
 
-func (o *OspServer) GetAppChart(name, chartVersion string) (*chart.Chart, error) {
-	ret, err := o.httpClient.Get(fmt.Sprintf("/app/charts/%s/%s", name, chartVersion), nil)
-	if err != nil {
-		klog.Errorf("get app charts error: %s", err)
-		return nil, err
-	}
-	res := &utils.Response{}
-	err = json.Unmarshal(ret, res)
-	if err != nil {
-		klog.Error("unmarshal return app chart error: %s", err)
-		return nil, err
-	}
-	if !res.IsSuccess() {
-		return nil, fmt.Errorf("%s", res.Msg)
-	}
-	chartString := res.Data.(string)
-	tarDecode, err := base64.StdEncoding.DecodeString(chartString)
+func (o *OspServer) GetAppChart(chartPath string) (*chart.Chart, error) {
+	ret, err := o.httpClient.Get(fmt.Sprintf("/app/charts/%s", chartPath), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	charts, err := loader.LoadArchive(bytes.NewReader(tarDecode))
+	charts, err := loader.LoadArchive(bytes.NewReader(ret))
 	if err != nil {
 		return nil, err
 	}

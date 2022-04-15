@@ -75,6 +75,10 @@ type InformerRegistryImpl struct {
 
 func NewInformerRegistry(kubeClient kubernetes.Interface, stopCh <-chan struct{}) (InformerRegistry, error) {
 	// 初始化 informer
+	ver, err := kubeClient.Discovery().ServerVersion()
+	if err != nil {
+		return nil, err
+	}
 	factory := informers.NewSharedInformerFactory(kubeClient, 0)
 	defer runtime.HandleCrash()
 	podInformer, err := NewPodInformer(factory, stopCh)
@@ -147,14 +151,18 @@ func NewInformerRegistry(kubeClient kubernetes.Interface, stopCh <-chan struct{}
 		return nil, err
 	}
 
-	ingressInformer, err := NewIngressInformer(factory, stopCh)
-	if err != nil {
-		return nil, err
-	}
-
-	newIngressInformer, err := NewNetworkIngressInformer(factory, stopCh)
-	if err != nil {
-		return nil, err
+	var newIngressInformer networkv1.IngressInformer
+	var ingressInformer extv1betav1.IngressInformer
+	if VersionGreaterThan19(ver) {
+		newIngressInformer, err = NewNetworkIngressInformer(factory, stopCh)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ingressInformer, err = NewIngressInformer(factory, stopCh)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	networkPolicyInformer, err := NewNetworkPolicyInformer(factory, stopCh)

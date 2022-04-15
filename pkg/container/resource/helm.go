@@ -17,6 +17,7 @@ import (
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/klog"
+	"sigs.k8s.io/yaml"
 	"strings"
 	"sync"
 	"time"
@@ -27,11 +28,11 @@ type Helm struct {
 	*kubernetes.KubeClient
 	watch *WatchResource
 	*DynamicResource
-	genericclioptions.RESTClientGetter
+	//genericclioptions.RESTClientGetter
 	pod *Pod
 }
 
-func newConfigFlags(kubeClient *kubernetes.KubeClient) *genericclioptions.ConfigFlags {
+func newConfigFlags(kubeClient *kubernetes.KubeClient, namespace string) *genericclioptions.ConfigFlags {
 	var impersonateGroup []string
 	insecure := true
 
@@ -39,7 +40,7 @@ func newConfigFlags(kubeClient *kubernetes.KubeClient) *genericclioptions.Config
 	return &genericclioptions.ConfigFlags{
 		Insecure:   &insecure,
 		KubeConfig: &kubeClient.KubeConfigFile,
-		Namespace:  utils.StringPtr(""),
+		Namespace:  utils.StringPtr(namespace),
 		APIServer:  utils.StringPtr(kubeClient.Config.Host),
 		//CAFile:           utils.StringPtr(kubeClient.Config.CAFile),
 		BearerToken:      utils.StringPtr(kubeClient.Config.BearerToken),
@@ -49,12 +50,12 @@ func newConfigFlags(kubeClient *kubernetes.KubeClient) *genericclioptions.Config
 
 func NewHelm(pod *Pod, kubeClient *kubernetes.KubeClient, watch *WatchResource, ospServer *ospserver.OspServer) *Helm {
 	h := &Helm{
-		OspServer:        ospServer,
-		KubeClient:       kubeClient,
-		watch:            watch,
-		DynamicResource:  NewDynamicResource(kubeClient, nil),
-		RESTClientGetter: newConfigFlags(kubeClient),
-		pod:              pod,
+		OspServer:       ospServer,
+		KubeClient:      kubeClient,
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, nil),
+		//RESTClientGetter: newConfigFlags(kubeClient),
+		pod: pod,
 	}
 	return h
 }
@@ -79,8 +80,8 @@ func (h *Helm) buildRelease(release *release.Release) map[string]interface{} {
 
 func (h *Helm) List(requestParams interface{}) *utils.Response {
 	actionConfig := new(action.Configuration)
-
-	if err := actionConfig.Init(h.RESTClientGetter, "", "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, "")
+	if err := actionConfig.Init(clientGetter, "", "", klog.Infof); err != nil {
 		klog.Errorf("%+v", err)
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
@@ -98,12 +99,13 @@ func (h *Helm) List(requestParams interface{}) *utils.Response {
 }
 
 type HelmGetParams struct {
-	ReleaseName  string                 `json:"release_name"`
-	Name         string                 `json:"name"`
-	ChartVersion string                 `json:"chart_version"`
-	Namespace    string                 `json:"namespace"`
-	Values       map[string]interface{} `json:"values"`
-	GetOption    string                 `json:"get_option"`
+	ReleaseName  string `json:"release_name"`
+	Name         string `json:"name"`
+	ChartVersion string `json:"chart_version"`
+	ChartPath    string `json:"chart_path"`
+	Namespace    string `json:"namespace"`
+	Values       string `json:"values"`
+	GetOption    string `json:"get_option"`
 }
 
 func (h *Helm) Get(requestParams interface{}) *utils.Response {
@@ -118,7 +120,8 @@ func (h *Helm) Get(requestParams interface{}) *utils.Response {
 	klog.Info(queryParams)
 	actionConfig := new(action.Configuration)
 
-	if err := actionConfig.Init(h.RESTClientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
+	if err := actionConfig.Init(clientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("%+v", err)
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
@@ -154,16 +157,17 @@ func (h *Helm) Create(requestParams interface{}) *utils.Response {
 	if queryParams.Namespace == "" {
 		return &utils.Response{Code: code.ParamsError, Msg: "Namespace is blank"}
 	}
-	if queryParams.ChartVersion == "" {
-		return &utils.Response{Code: code.ParamsError, Msg: "Chart version is blank"}
+	if queryParams.ChartPath == "" {
+		return &utils.Response{Code: code.ParamsError, Msg: "Chart path is blank"}
 	}
-	chart, err := h.OspServer.GetAppChart(queryParams.Name, queryParams.ChartVersion)
+	chart, err := h.OspServer.GetAppChart(queryParams.ChartPath)
 	if err != nil {
 		return &utils.Response{Code: code.ParamsError, Msg: "get chart error, " + err.Error()}
 	}
 	actionConfig := new(action.Configuration)
 
-	if err = actionConfig.Init(h.RESTClientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
+	if err = actionConfig.Init(clientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("init helm config error: %+v", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
 	}
@@ -175,7 +179,12 @@ func (h *Helm) Create(requestParams interface{}) *utils.Response {
 	}
 	clientInstall.ReleaseName = releaseName
 	clientInstall.Namespace = queryParams.Namespace
-	_, err = clientInstall.Run(chart, queryParams.Values)
+	values := make(map[string]interface{})
+	err = yaml.Unmarshal([]byte(queryParams.Values), &values)
+	if err != nil {
+		return &utils.Response{Code: code.ParamsError, Msg: "values参数解析错误：" + err.Error()}
+	}
+	_, err = clientInstall.Run(chart, values)
 	if err != nil {
 		klog.Errorf("install release error: %s", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
@@ -192,22 +201,27 @@ func (h *Helm) Update(requestParams interface{}) *utils.Response {
 	if queryParams.Namespace == "" {
 		return &utils.Response{Code: code.ParamsError, Msg: "Namespace is blank"}
 	}
+	chart, err := h.OspServer.GetAppChart(queryParams.ChartPath)
+	if err != nil {
+		return &utils.Response{Code: code.ParamsError, Msg: "get chart error, " + err.Error()}
+	}
 
 	actionConfig := new(action.Configuration)
 
-	if err := actionConfig.Init(h.RESTClientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
+	if err = actionConfig.Init(clientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("init helm config error: %+v", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
 	}
-	client := action.NewGet(actionConfig)
-	res, err := client.Run(queryParams.Name)
-	if err != nil {
-		klog.Errorf("get release error: %s", err)
-		return &utils.Response{Code: code.ListError, Msg: err.Error()}
-	}
+
 	clientInstall := action.NewUpgrade(actionConfig)
 	clientInstall.Namespace = queryParams.Namespace
-	_, err = clientInstall.Run(queryParams.Name, res.Chart, queryParams.Values)
+	values := make(map[string]interface{})
+	err = yaml.Unmarshal([]byte(queryParams.Values), &values)
+	if err != nil {
+		return &utils.Response{Code: code.ParamsError, Msg: "values参数解析错误：" + err.Error()}
+	}
+	_, err = clientInstall.Run(queryParams.Name, chart, values)
 	if err != nil {
 		klog.Errorf("install release error: %s", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
@@ -228,7 +242,8 @@ func (h *Helm) Delete(requestParams interface{}) *utils.Response {
 
 	actionConfig := new(action.Configuration)
 
-	if err := actionConfig.Init(h.RESTClientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
+	if err := actionConfig.Init(clientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("init helm config error: %+v", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
 	}
@@ -252,7 +267,8 @@ func (h *Helm) GetValues(requestParams interface{}) *utils.Response {
 	}
 	actionConfig := new(action.Configuration)
 
-	if err := actionConfig.Init(h.RESTClientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
+	if err := actionConfig.Init(clientGetter, queryParams.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("%+v", err)
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
@@ -302,7 +318,8 @@ func (h *Helm) Status(reqParams interface{}) *utils.Response {
 	}
 	actionConfig := new(action.Configuration)
 
-	if err := actionConfig.Init(h.RESTClientGetter, params.Namespace, "", klog.Infof); err != nil {
+	clientGetter := newConfigFlags(h.KubeClient, params.Namespace)
+	if err := actionConfig.Init(clientGetter, params.Namespace, "", klog.Infof); err != nil {
 		klog.Errorf("%+v", err)
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
@@ -379,8 +396,8 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 				var podList *v1.PodList
 				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for _, pod := range podList.Items {
-						workloads = append(workloads, &pod)
+					for idx, _ := range podList.Items {
+						workloads = append(workloads, &podList.Items[idx])
 					}
 				}
 			}
@@ -393,8 +410,8 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 				var podList *v1.PodList
 				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for _, pod := range podList.Items {
-						workloads = append(workloads, &pod)
+					for idx, _ := range podList.Items {
+						workloads = append(workloads, &podList.Items[idx])
 					}
 				}
 			}
@@ -407,8 +424,8 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 				var podList *v1.PodList
 				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for _, pod := range podList.Items {
-						workloads = append(workloads, &pod)
+					for idx, _ := range podList.Items {
+						workloads = append(workloads, &podList.Items[idx])
 					}
 				}
 			}
@@ -421,8 +438,8 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 				var podList *v1.PodList
 				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for _, pod := range podList.Items {
-						workloads = append(workloads, &pod)
+					for idx, _ := range podList.Items {
+						workloads = append(workloads, &podList.Items[idx])
 					}
 				}
 			}
@@ -435,8 +452,8 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 				var podList *v1.PodList
 				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for _, pod := range podList.Items {
-						workloads = append(workloads, &pod)
+					for idx, _ := range podList.Items {
+						workloads = append(workloads, &podList.Items[idx])
 					}
 				}
 			}
@@ -482,7 +499,7 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 	var workloads []runtime.Object
 	objects := h.GetReleaseObjects(release)
 	namespace := release.Namespace
-	for _, object := range objects {
+	for i, object := range objects {
 		switch object.GetKind() {
 		case "Pod":
 			pod, err := h.KubeClient.ClientSet.CoreV1().Pods(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
@@ -498,8 +515,8 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 			} else {
 				workloads = append(workloads, deployment)
 				podList, _ := h.GetPodList(namespace, deployment.Spec.Template.Labels)
-				for _, pod := range podList.Items {
-					workloads = append(workloads, &pod)
+				for idx, _ := range podList.Items {
+					workloads = append(workloads, &podList.Items[idx])
 				}
 			}
 		case "DaemonSet":
@@ -509,8 +526,8 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 			} else {
 				workloads = append(workloads, ds)
 				podList, _ := h.GetPodList(namespace, ds.Spec.Template.Labels)
-				for _, pod := range podList.Items {
-					workloads = append(workloads, &pod)
+				for idx, _ := range podList.Items {
+					workloads = append(workloads, &podList.Items[idx])
 				}
 			}
 		case "StatefulSet":
@@ -520,8 +537,8 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 			} else {
 				workloads = append(workloads, sts)
 				podList, _ := h.GetPodList(namespace, sts.Spec.Template.Labels)
-				for _, pod := range podList.Items {
-					workloads = append(workloads, &pod)
+				for idx, _ := range podList.Items {
+					workloads = append(workloads, &podList.Items[idx])
 				}
 			}
 		case "Job":
@@ -531,8 +548,8 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 			} else {
 				workloads = append(workloads, job)
 				podList, _ := h.GetPodList(namespace, job.Spec.Template.Labels)
-				for _, pod := range podList.Items {
-					workloads = append(workloads, &pod)
+				for idx, _ := range podList.Items {
+					workloads = append(workloads, &podList.Items[idx])
 				}
 			}
 		case "ReplicaSet":
@@ -542,8 +559,8 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 			} else {
 				workloads = append(workloads, rs)
 				podList, _ := h.GetPodList(namespace, rs.Spec.Template.Labels)
-				for _, pod := range podList.Items {
-					workloads = append(workloads, &pod)
+				for idx, _ := range podList.Items {
+					workloads = append(workloads, &podList.Items[idx])
 				}
 			}
 		case "Service":
@@ -554,7 +571,7 @@ func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Obje
 				workloads = append(workloads, deployment)
 			}
 		default:
-			workloads = append(workloads, object)
+			workloads = append(workloads, objects[i])
 		}
 	}
 	return workloads

@@ -2,6 +2,8 @@ package kubernetes
 
 import (
 	apiExtensionsClientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	utilversion "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	kube_client "k8s.io/client-go/kubernetes"
@@ -19,6 +21,7 @@ type KubeClient struct {
 	InformerRegistry
 	*discovery.DiscoveryClient
 	ApiExtensionsClientSet apiExtensionsClientset.Interface
+	Version                *version.Info
 }
 
 func getKubeConfig(kubeConfigFile string) *rest.Config {
@@ -57,6 +60,7 @@ func NewKubeClient(kubeConfigFile string) *KubeClient {
 	if err != nil {
 		panic(err.Error())
 	}
+	ver, err := kubeClient.ServerVersion()
 	return &KubeClient{
 		KubeConfigFile: kubeConfigFile,
 		ClientSet:      kubeClient,
@@ -66,5 +70,13 @@ func NewKubeClient(kubeConfigFile string) *KubeClient {
 		InformerRegistry:       informerRegistry,
 		DiscoveryClient:        dc,
 		ApiExtensionsClientSet: apiExtensions,
+		Version:                ver,
 	}
+}
+
+func VersionGreaterThan19(ver *version.Info) bool {
+	if utilversion.MustParseSemantic(ver.GitVersion).LessThan(utilversion.MustParseSemantic("v1.19.0")) {
+		return false
+	}
+	return true
 }

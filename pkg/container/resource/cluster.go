@@ -121,11 +121,19 @@ func (c *Cluster) Get(requestParams interface{}) *utils.Response {
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
 	bc.ServiceNum = len(services)
-	ingresses, err := c.KubeClient.IngressInformer().Lister().List(labels.Everything())
-	if err != nil {
-		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	if kubernetes.VersionGreaterThan19(c.KubeClient.Version) {
+		ingresses, err := c.KubeClient.NewIngressInformer().Lister().List(labels.Everything())
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
+		}
+		bc.IngressNum = len(ingresses)
+	} else {
+		ingresses, err := c.KubeClient.IngressInformer().Lister().List(labels.Everything())
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
+		}
+		bc.IngressNum = len(ingresses)
 	}
-	bc.IngressNum = len(ingresses)
 	sc, err := c.KubeClient.StorageClassInformer().Lister().List(labels.Everything())
 	if err != nil {
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}

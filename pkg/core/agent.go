@@ -34,7 +34,7 @@ func NewAgentConfig(opt *config.AgentOptions) (*AgentConfig, error) {
 		agentConfig.RequestChan,
 		agentConfig.ResponseChan,
 		serverRespUrl)
-	serverHttpsUrl := &url.URL{Scheme: "https", Host: opt.ServerUrl}
+	serverHttpsUrl := &url.URL{Scheme: "http", Host: opt.ServerUrl}
 	ospServer, err := ospserver.NewOspServer(serverHttpsUrl)
 	if err != nil {
 		klog.Errorf("new ospserver error: %v", err)
