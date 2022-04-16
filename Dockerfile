@@ -1,4 +1,4 @@
-ARG BASEIMAGE=gcr.io/distroless/static:latest
+ARG BASEIMAGE=kubespace/distroless-static:latest
 FROM $BASEIMAGE
 
 COPY agent /
