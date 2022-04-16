@@ -5,7 +5,7 @@ TAG?=dev
 
 
 build-binary: clean
-	$(ENVVAR) GOOS=$(GOOS) go build -o ospagent
+	$(ENVVAR) GOOS=$(GOOS) go build -o agent
 
 clean:
 	rm -f ospagent
