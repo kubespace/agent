@@ -8,7 +8,7 @@ build-binary: clean
 	$(ENVVAR) GOOS=$(GOOS) go build -o agent
 
 clean:
-	rm -f ospagent
+	rm -f agent
 
 docker-builder:
 	docker images | grep ospagent-builder || docker build -t ospagent-builder ./builder
