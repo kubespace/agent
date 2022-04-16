@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/klog"
@@ -22,6 +23,15 @@ import (
 	"sync"
 	"time"
 )
+
+var WorkloadGVRMap = map[string]*schema.GroupVersionResource{
+	"Deployment":  DeploymentGVR,
+	"StatefulSet": StatefulSetGVR,
+	"DaemonSet":   DaemonSetGVR,
+	"Job":         JobGVR,
+	"CronJob":     CronJobGVR,
+}
+var WorkloadKinds = []string{"Deployment", "StatefulSet", "DaemonSet", "Job"}
 
 type Helm struct {
 	*ospserver.OspServer
@@ -495,82 +505,56 @@ func (h *Helm) GetPodList(namespace string, labelsMap map[string]string) (*v1.Po
 	})
 }
 
-func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []runtime.Object {
-	var workloads []runtime.Object
+func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []*unstructured.Unstructured {
+	var workloads []*unstructured.Unstructured
 	objects := h.GetReleaseObjects(release)
 	namespace := release.Namespace
 	for i, object := range objects {
-		switch object.GetKind() {
-		case "Pod":
-			pod, err := h.KubeClient.ClientSet.CoreV1().Pods(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+		if utils.Contains(WorkloadKinds, object.GetKind()) {
+			obj, err := h.DynamicClient.Resource(*WorkloadGVRMap[object.GetKind()]).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+				workloads = append(workloads, object)
+				continue
+			}
+			workloads = append(workloads, obj)
+			podLabels, ok, err := unstructured.NestedStringMap(obj.Object, "spec", "selector", "matchLabels")
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s labels error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+				workloads = append(workloads, obj)
+				continue
+			}
+			if !ok {
+				klog.Errorf("get namespace %s workload %s/%s labels error", namespace, object.GetKind(), object.GetName())
+				workloads = append(workloads, obj)
+				continue
+			}
+			pods, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).List(h.context, metav1.ListOptions{
+				LabelSelector: labels.Set(podLabels).AsSelector().String(),
+			})
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s pods error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+			}
+			if pods != nil {
+				for idx, _ := range pods.Items {
+					workloads = append(workloads, &pods.Items[idx])
+				}
+			}
+		} else if object.GetKind() == "Pod" {
+			pod, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
 			if err != nil {
 				klog.Warning("get release pods error: ", err)
 			} else {
 				workloads = append(workloads, pod)
 			}
-		case "Deployment":
-			deployment, err := h.ClientSet.AppsV1().Deployments(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release deployment error: ", err)
-			} else {
-				workloads = append(workloads, deployment)
-				podList, _ := h.GetPodList(namespace, deployment.Spec.Template.Labels)
-				for idx, _ := range podList.Items {
-					workloads = append(workloads, &podList.Items[idx])
-				}
-			}
-		case "DaemonSet":
-			ds, err := h.ClientSet.AppsV1().DaemonSets(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release daemonset error: ", err)
-			} else {
-				workloads = append(workloads, ds)
-				podList, _ := h.GetPodList(namespace, ds.Spec.Template.Labels)
-				for idx, _ := range podList.Items {
-					workloads = append(workloads, &podList.Items[idx])
-				}
-			}
-		case "StatefulSet":
-			sts, err := h.ClientSet.AppsV1().StatefulSets(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-			} else {
-				workloads = append(workloads, sts)
-				podList, _ := h.GetPodList(namespace, sts.Spec.Template.Labels)
-				for idx, _ := range podList.Items {
-					workloads = append(workloads, &podList.Items[idx])
-				}
-			}
-		case "Job":
-			job, err := h.ClientSet.BatchV1().Jobs(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-			} else {
-				workloads = append(workloads, job)
-				podList, _ := h.GetPodList(namespace, job.Spec.Template.Labels)
-				for idx, _ := range podList.Items {
-					workloads = append(workloads, &podList.Items[idx])
-				}
-			}
-		case "ReplicaSet":
-			rs, err := h.ClientSet.AppsV1().ReplicaSets(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-			} else {
-				workloads = append(workloads, rs)
-				podList, _ := h.GetPodList(namespace, rs.Spec.Template.Labels)
-				for idx, _ := range podList.Items {
-					workloads = append(workloads, &podList.Items[idx])
-				}
-			}
-		case "Service":
-			deployment, err := h.ClientSet.CoreV1().Services(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+		} else if object.GetKind() == "Service" {
+			svc, err := h.DynamicClient.Resource(*ServiceGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
 			if err != nil {
 				klog.Warning("get release service error: ", err)
 			} else {
-				workloads = append(workloads, deployment)
+				workloads = append(workloads, svc)
 			}
-		default:
+		} else {
 			workloads = append(workloads, objects[i])
 		}
 	}

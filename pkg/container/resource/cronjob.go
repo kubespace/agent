@@ -20,6 +20,12 @@ import (
 	"strings"
 )
 
+var CronJobGVR = &schema.GroupVersionResource{
+	Group:    "batch",
+	Version:  "v1beta1",
+	Resource: "cronjobs",
+}
+
 type CronJob struct {
 	watch *WatchResource
 	*DynamicResource
@@ -27,12 +33,8 @@ type CronJob struct {
 
 func NewCronJob(kubeClient *kubernetes.KubeClient, watch *WatchResource) *CronJob {
 	d := &CronJob{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "batch",
-			Version:  "v1beta1",
-			Resource: "cronjobs",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, CronJobGVR),
 	}
 	d.DoWatch()
 	return d

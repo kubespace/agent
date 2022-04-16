@@ -177,7 +177,7 @@ func (ws *WebSocket) WriteExecResponse() {
 		select {
 		case resp, ok := <-ws.ExecResponseChan:
 			if ok {
-				klog.Info(resp)
+				//klog.Info(resp)
 				ws.doSendExecResponse(resp)
 			}
 		}
@@ -242,7 +242,7 @@ func (ws *WebSocket) doSendExecResponse(resp *utils.TResponse) {
 					case resp, ok := <-execResp.ResponseChan:
 						if ok {
 							respMsg, err := resp.Serializer()
-							klog.Info(string(respMsg))
+							//klog.Info(string(respMsg))
 							if err != nil {
 								klog.Errorf("response %v serializer error: %s", resp, err)
 								return

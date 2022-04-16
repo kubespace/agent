@@ -18,6 +18,12 @@ import (
 	"strings"
 )
 
+var ServiceGVR = &schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "services",
+}
+
 type Service struct {
 	watch *WatchResource
 	*DynamicResource
@@ -25,12 +31,8 @@ type Service struct {
 
 func NewService(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Service {
 	s := &Service{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "",
-			Version:  "v1",
-			Resource: "services",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, ServiceGVR),
 	}
 	s.DoWatch()
 	return s

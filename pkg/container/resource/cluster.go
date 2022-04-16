@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"github.com/kubespace/agent/pkg/kubernetes"
 	"github.com/kubespace/agent/pkg/utils"
 	"github.com/kubespace/agent/pkg/utils/code"
@@ -49,9 +50,12 @@ type BuildCluster struct {
 	PVBoundNum      int    `json:"pv_bound_num"`
 	PVFailedNum     int    `json:"pv_failed_num"`
 	PVCNum          int    `json:"pvc_num"`
+	ConfigMapNum    int    `json:"config_map_num"`
+	SecretNum       int    `json:"secret_num"`
 }
 
 type ClusterQueryParams struct {
+	Workspace uint   `json:"workspace"`
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	UID       string `json:"uid"`
@@ -59,6 +63,11 @@ type ClusterQueryParams struct {
 }
 
 func (c *Cluster) Get(requestParams interface{}) *utils.Response {
+	queryParams := &ClusterQueryParams{}
+	json.Unmarshal(requestParams.([]byte), queryParams)
+	if queryParams.Workspace != 0 {
+		return c.WorkspaceOverview(requestParams)
+	}
 	var bc = BuildCluster{}
 	version, err := c.ClientSet.Discovery().ServerVersion()
 	if err != nil {
@@ -160,5 +169,60 @@ func (c *Cluster) Get(requestParams interface{}) *utils.Response {
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
 	bc.PVCNum = len(pvc)
+	return &utils.Response{Code: code.Success, Msg: "Success", Data: bc}
+}
+
+func (c *Cluster) WorkspaceOverview(requestParams interface{}) *utils.Response {
+	queryParams := &ClusterQueryParams{}
+	json.Unmarshal(requestParams.([]byte), queryParams)
+	if queryParams.Namespace == "" {
+		return &utils.Response{Code: code.ParamsError, Msg: "参数namespace为空"}
+	}
+	namespace := queryParams.Namespace
+	workspaceLabels := labels.Set(map[string]string{"kubespace.cn/belong-to": "project"}).AsSelector()
+
+	var bc = BuildCluster{}
+	version, err := c.ClientSet.Discovery().ServerVersion()
+	if err != nil {
+		klog.Errorf("get version error: %s", err)
+		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	}
+	bc.ClusterVersion = version.GitVersion
+
+	services, err := c.KubeClient.ServiceInformer().Lister().Services(namespace).List(workspaceLabels)
+	if err != nil {
+		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	}
+	bc.ServiceNum = len(services)
+	if kubernetes.VersionGreaterThan19(c.KubeClient.Version) {
+		ingresses, err := c.KubeClient.NewIngressInformer().Lister().Ingresses(namespace).List(workspaceLabels)
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
+		}
+		bc.IngressNum = len(ingresses)
+	} else {
+		ingresses, err := c.KubeClient.IngressInformer().Lister().Ingresses(namespace).List(workspaceLabels)
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
+		}
+		bc.IngressNum = len(ingresses)
+	}
+
+	pvc, err := c.KubeClient.PersistentVolumeClaimInformer().Lister().PersistentVolumeClaims(namespace).List(workspaceLabels)
+	if err != nil {
+		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	}
+	bc.PVCNum = len(pvc)
+
+	cm, err := c.KubeClient.ConfigMapInformer().Lister().ConfigMaps(namespace).List(workspaceLabels)
+	if err != nil {
+		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	}
+	bc.ConfigMapNum = len(cm)
+	secret, err := c.KubeClient.SecretInformer().Lister().Secrets(namespace).List(workspaceLabels)
+	if err != nil {
+		return &utils.Response{Code: code.ListError, Msg: err.Error()}
+	}
+	bc.PVCNum = len(secret)
 	return &utils.Response{Code: code.Success, Msg: "Success", Data: bc}
 }

@@ -19,6 +19,12 @@ import (
 	"strings"
 )
 
+var DaemonSetGVR = &schema.GroupVersionResource{
+	Group:    "apps",
+	Version:  "v1",
+	Resource: "daemonsets",
+}
+
 type DaemonSet struct {
 	watch *WatchResource
 	*DynamicResource
@@ -26,12 +32,8 @@ type DaemonSet struct {
 
 func NewDaemonSet(kubeClient *kubernetes.KubeClient, watch *WatchResource) *DaemonSet {
 	d := &DaemonSet{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
-			Resource: "daemonsets",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, DaemonSetGVR),
 	}
 	d.DoWatch()
 	return d

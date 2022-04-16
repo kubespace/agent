@@ -19,6 +19,12 @@ import (
 	"strings"
 )
 
+var JobGVR = &schema.GroupVersionResource{
+	Group:    "batch",
+	Version:  "v1",
+	Resource: "jobs",
+}
+
 type Job struct {
 	watch *WatchResource
 	*DynamicResource
@@ -26,12 +32,8 @@ type Job struct {
 
 func NewJob(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Job {
 	d := &Job{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "batch",
-			Version:  "v1",
-			Resource: "jobs",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, JobGVR),
 	}
 	d.DoWatch()
 	return d

@@ -19,6 +19,12 @@ import (
 	"strings"
 )
 
+var DeploymentGVR = &schema.GroupVersionResource{
+	Group:    "apps",
+	Version:  "v1",
+	Resource: "deployments",
+}
+
 type Deployment struct {
 	watch *WatchResource
 	*DynamicResource
@@ -26,12 +32,8 @@ type Deployment struct {
 
 func NewDeployment(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Deployment {
 	d := &Deployment{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
-			Resource: "deployments",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, DeploymentGVR),
 	}
 	d.DoWatch()
 	return d

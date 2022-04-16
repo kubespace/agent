@@ -19,6 +19,12 @@ import (
 	"strings"
 )
 
+var StatefulSetGVR = &schema.GroupVersionResource{
+	Group:    "apps",
+	Version:  "v1",
+	Resource: "statefulsets",
+}
+
 type StatefulSet struct {
 	watch *WatchResource
 	*DynamicResource
@@ -26,12 +32,8 @@ type StatefulSet struct {
 
 func NewStatefulSet(kubeClient *kubernetes.KubeClient, watch *WatchResource) *StatefulSet {
 	s := &StatefulSet{
-		watch: watch,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
-			Resource: "statefulsets",
-		}),
+		watch:           watch,
+		DynamicResource: NewDynamicResource(kubeClient, StatefulSetGVR),
 	}
 	s.DoWatch()
 	return s

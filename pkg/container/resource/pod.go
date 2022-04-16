@@ -22,6 +22,12 @@ import (
 	"strings"
 )
 
+var PodGVR = &schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "pods",
+}
+
 const (
 	PodStatusTerminating         = "Terminating"
 	PodStatusWaitingForReadiness = "WaitingForReadiness"
@@ -37,15 +43,11 @@ type Pod struct {
 
 func NewPod(kubeClient *kubernetes.KubeClient, sendResponse websocket.SendResponse, watch *WatchResource) *Pod {
 	pod := &Pod{
-		SendResponse: sendResponse,
-		watch:        watch,
-		execSessions: make(map[string]*streamHandler),
-		logSessions:  make(map[string]*logHandler),
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "",
-			Version:  "v1",
-			Resource: "pods",
-		}),
+		SendResponse:    sendResponse,
+		watch:           watch,
+		execSessions:    make(map[string]*streamHandler),
+		logSessions:     make(map[string]*logHandler),
+		DynamicResource: NewDynamicResource(kubeClient, PodGVR),
 	}
 	pod.DoWatch()
 	return pod
