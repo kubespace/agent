@@ -5,13 +5,21 @@ import (
 	"github.com/kubespace/agent/pkg/config"
 	"github.com/kubespace/agent/pkg/core"
 	"k8s.io/klog"
+	"os"
 )
 
 var (
 	kubeConfigFile = flag.String("kubeconfig", "", "Path to kubeconfig file with authorization and master location information.")
-	agentToken     = flag.String("token", "", "Agent token to connect to server.")
-	serverUrl      = flag.String("server-url", "", "Server url agent to connect.")
+	agentToken     = flag.String("token", LookupEnvOrString("TOKEN", "local"), "Agent token to connect to server.")
+	serverUrl      = flag.String("server-url", LookupEnvOrString("SERVER_URL", "kubespace"), "Server url agent to connect.")
 )
+
+func LookupEnvOrString(key string, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
 
 func createAgentOptions() *config.AgentOptions {
 	return &config.AgentOptions{
