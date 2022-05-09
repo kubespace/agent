@@ -36,3 +36,11 @@ func (o *OspServer) GetAppChart(chartPath string) (*chart.Chart, error) {
 	}
 	return charts, nil
 }
+
+func (o *OspServer) GetAgentYaml(token string) (string, error) {
+	ret, err := o.httpClient.Get(fmt.Sprintf("/v1/import/%s", token), nil)
+	if err != nil {
+		return "", err
+	}
+	return string(ret), nil
+}

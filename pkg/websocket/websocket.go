@@ -4,6 +4,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"github.com/gorilla/websocket"
+	"github.com/kubespace/agent/pkg/container/resource"
+	"github.com/kubespace/agent/pkg/ospserver"
 	"github.com/kubespace/agent/pkg/utils"
 	"github.com/kubespace/agent/pkg/utils/code"
 	"k8s.io/klog"
@@ -37,6 +39,8 @@ type WebSocket struct {
 	ExecResponseChan chan *utils.TResponse
 	Conn             *websocket.Conn
 	ExecResponseMap  map[string]*ExecWebSocket
+	OspServer        *ospserver.OspServer
+	DynamicResource  *resource.DynamicResource
 }
 
 func NewWebSocket(
@@ -44,7 +48,9 @@ func NewWebSocket(
 	token string,
 	requestChan chan *utils.Request,
 	responseChan chan *utils.TResponse,
-	respUrl *url.URL) *WebSocket {
+	respUrl *url.URL,
+	ospServer *ospserver.OspServer,
+	dynRes *resource.DynamicResource) *WebSocket {
 	return &WebSocket{
 		Url:              url,
 		Token:            token,
@@ -53,6 +59,8 @@ func NewWebSocket(
 		ExecResponseChan: make(chan *utils.TResponse, 1000),
 		RespUrl:          respUrl,
 		ExecResponseMap:  make(map[string]*ExecWebSocket),
+		OspServer:        ospServer,
+		DynamicResource:  dynRes,
 	}
 }
 
@@ -151,7 +159,20 @@ func (ws *WebSocket) connectServer() error {
 	} else {
 		klog.Infof("connect to server %s success\n", ws.Url.String())
 		ws.Conn = conn
+		ws.updateAgent()
 		return nil
+	}
+}
+
+func (ws *WebSocket) updateAgent() {
+	agentYaml, err := ws.OspServer.GetAgentYaml(ws.Token)
+	if err != nil {
+		klog.Errorf("get agent yaml error: %s", err)
+		return
+	}
+	resp := ws.DynamicResource.ApplyYaml(agentYaml)
+	if !resp.IsSuccess() {
+		klog.Errorf("apply agent yaml error: %s", resp.Msg)
 	}
 }
 
