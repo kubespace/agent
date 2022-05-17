@@ -38,6 +38,10 @@ func NewAgentConfig(opt *config.AgentOptions) (*AgentConfig, error) {
 
 	kubeClient := kubernetes.NewKubeClient(opt.KubeConfigFile)
 	dynamicResource := resource.NewDynamicResource(kubeClient, nil)
+	updateAgent := true
+	if opt.KubeConfigFile != "" {
+		updateAgent = false
+	}
 	agentConfig.WebSocket = websocket.NewWebSocket(
 		serverUrl,
 		opt.AgentToken,
@@ -45,7 +49,8 @@ func NewAgentConfig(opt *config.AgentOptions) (*AgentConfig, error) {
 		agentConfig.ResponseChan,
 		serverRespUrl,
 		ospServer,
-		dynamicResource)
+		dynamicResource,
+		updateAgent)
 	agentConfig.Container = container.NewContainer(
 		//nil,
 		kubeClient,

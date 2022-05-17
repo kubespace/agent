@@ -38,15 +38,15 @@ var (
 )
 
 func NewIngress(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Ingress {
-	var dynamic *schema.GroupVersionResource
+	var gvr *schema.GroupVersionResource
 	if kubernetes.VersionGreaterThan19(kubeClient.Version) {
-		dynamic = NetworkIngressGVR
+		gvr = NetworkIngressGVR
 	} else {
-		dynamic = ExtensionIngressGVR
+		gvr = ExtensionIngressGVR
 	}
 	s := &Ingress{
 		watch:           watch,
-		DynamicResource: NewDynamicResource(kubeClient, dynamic),
+		DynamicResource: NewDynamicResource(kubeClient, gvr),
 	}
 	s.DoWatch()
 	return s

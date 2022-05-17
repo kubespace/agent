@@ -18,7 +18,7 @@ import (
 //type Secret struct {
 //	*kubernetes.KubeClient
 //	websocket.SendResponse
-//	*DynamicResource
+//	*ApplyResource
 //}
 
 type Secret struct {

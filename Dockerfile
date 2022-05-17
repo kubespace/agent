@@ -1,4 +1,4 @@
-ARG BASEIMAGE=kubespace/busybox:v1.33.1
+ARG BASEIMAGE=registry.cn-hangzhou.aliyuncs.com/kubespace/distroless-static:latest
 FROM $BASEIMAGE
 
 COPY agent /agent

@@ -30,7 +30,7 @@ func NewEvent(kubeClient *kubernetes.KubeClient, watch *WatchResource) *Event {
 			Resource: "events",
 		}),
 	}
-	e.DoWatch()
+	//e.DoWatch()
 	return e
 }
 
