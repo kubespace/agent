@@ -7,6 +7,7 @@ import (
 	"github.com/kubespace/agent/pkg/utils"
 	"github.com/kubespace/agent/pkg/utils/code"
 	extv1betav1 "k8s.io/api/extensions/v1beta1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -99,6 +100,35 @@ func (i *Ingress) ToBuildIngress(ingress *extv1betav1.Ingress) *BuildIngress {
 	return data
 }
 
+type BuildNewIngress struct {
+	UID             string                       `json:"uid"`
+	Name            string                       `json:"name"`
+	Namespace       string                       `json:"namespace"`
+	Backend         *networkingv1.IngressBackend `json:"backend"`
+	TLS             []networkingv1.IngressTLS    `json:"tls"`
+	Rules           []networkingv1.IngressRule   `json:"rules"`
+	Created         metav1.Time                  `json:"created"`
+	ResourceVersion string                       `json:"resource_version"`
+}
+
+func (i *Ingress) ToBuildNewIngress(ingress *networkingv1.Ingress) *BuildNewIngress {
+	if ingress == nil {
+		return nil
+	}
+	data := &BuildNewIngress{
+		UID:             string(ingress.UID),
+		Name:            ingress.Name,
+		Namespace:       ingress.Namespace,
+		Backend:         ingress.Spec.DefaultBackend,
+		TLS:             ingress.Spec.TLS,
+		Rules:           ingress.Spec.Rules,
+		Created:         ingress.CreationTimestamp,
+		ResourceVersion: ingress.ResourceVersion,
+	}
+
+	return data
+}
+
 type IngressQueryParams struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
@@ -123,8 +153,31 @@ func (i *Ingress) List(requestParams interface{}) *utils.Response {
 		selector = labels.Everything()
 	}
 	if kubernetes.VersionGreaterThan19(i.KubeClient.Version) {
-
-		return &utils.Response{Code: code.Success, Msg: "Success", Data: nil}
+		list, err := i.KubeClient.NewIngressInformer().Lister().Ingresses(queryParams.Namespace).List(selector)
+		if err != nil {
+			return &utils.Response{
+				Code: code.ListError,
+				Msg:  err.Error(),
+			}
+		}
+		var ingresss []*BuildNewIngress
+		for _, ds := range list {
+			if queryParams.UID != "" && string(ds.UID) != queryParams.UID {
+				continue
+			}
+			if queryParams.Namespace != "" && ds.Namespace != queryParams.Namespace {
+				continue
+			}
+			if queryParams.Name != "" && strings.Contains(ds.Name, queryParams.Name) {
+				continue
+			}
+			ingresss = append(ingresss, i.ToBuildNewIngress(ds))
+		}
+		data := map[string]interface{}{
+			"ingresses": ingresss,
+			"group":     "networking",
+		}
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: data}
 	} else {
 		list, err := i.KubeClient.IngressInformer().Lister().Ingresses(queryParams.Namespace).List(selector)
 		if err != nil {
@@ -146,7 +199,11 @@ func (i *Ingress) List(requestParams interface{}) *utils.Response {
 			}
 			ingresss = append(ingresss, i.ToBuildIngress(ds))
 		}
-		return &utils.Response{Code: code.Success, Msg: "Success", Data: ingresss}
+		data := map[string]interface{}{
+			"ingresses": ingresss,
+			"group":     "extensions",
+		}
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: data}
 	}
 }
 
@@ -159,14 +216,24 @@ func (i *Ingress) Get(requestParams interface{}) *utils.Response {
 	if queryParams.Namespace == "" {
 		return &utils.Response{Code: code.ParamsError, Msg: "Namespace is blank"}
 	}
-	ingress, err := i.KubeClient.InformerRegistry.IngressInformer().Lister().Ingresses(queryParams.Namespace).Get(queryParams.Name)
+	var ingress runtime.Object
+	var err error
+	if kubernetes.VersionGreaterThan19(i.KubeClient.Version) {
+		ingress, err = i.KubeClient.InformerRegistry.NewIngressInformer().Lister().Ingresses(queryParams.Namespace).Get(queryParams.Name)
+	} else {
+		ingress, err = i.KubeClient.InformerRegistry.IngressInformer().Lister().Ingresses(queryParams.Namespace).Get(queryParams.Name)
+	}
 	if err != nil {
 		return &utils.Response{Code: code.GetError, Msg: err.Error()}
 	}
 	if queryParams.Output == "yaml" {
 		const mediaType = runtime.ContentTypeYAML
 		rscheme := runtime.NewScheme()
-		extv1betav1.AddToScheme(rscheme)
+		if kubernetes.VersionGreaterThan19(i.KubeClient.Version) {
+			networkingv1.AddToScheme(rscheme)
+		} else {
+			extv1betav1.AddToScheme(rscheme)
+		}
 		codecs := serializer.NewCodecFactory(rscheme)
 		info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
 		if !ok {
