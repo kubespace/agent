@@ -109,13 +109,14 @@ func (h *Helm) List(requestParams interface{}) *utils.Response {
 }
 
 type HelmGetParams struct {
-	ReleaseName  string `json:"release_name"`
-	Name         string `json:"name"`
-	ChartVersion string `json:"chart_version"`
-	ChartPath    string `json:"chart_path"`
-	Namespace    string `json:"namespace"`
-	Values       string `json:"values"`
-	GetOption    string `json:"get_option"`
+	ReleaseName   string `json:"release_name"`
+	Name          string `json:"name"`
+	ChartVersion  string `json:"chart_version"`
+	ChartPath     string `json:"chart_path"`
+	Namespace     string `json:"namespace"`
+	Values        string `json:"values"`
+	GetOption     string `json:"get_option"`
+	WithWorkloads bool   `json:"with_workloads"`
 }
 
 func (h *Helm) Get(requestParams interface{}) *utils.Response {
@@ -127,7 +128,6 @@ func (h *Helm) Get(requestParams interface{}) *utils.Response {
 	if queryParams.Namespace == "" {
 		return &utils.Response{Code: code.ParamsError, Msg: "Namespace is blank"}
 	}
-	klog.Info(queryParams)
 	actionConfig := new(action.Configuration)
 
 	clientGetter := newConfigFlags(h.KubeClient, queryParams.Namespace)
@@ -142,13 +142,13 @@ func (h *Helm) Get(requestParams interface{}) *utils.Response {
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
 	var data map[string]interface{}
-	objects := h.GetReleaseRuntimeObjects(releaseDetail)
+	status := h.GetReleaseRuntimeStatus(releaseDetail, queryParams.WithWorkloads)
 	data = map[string]interface{}{
-		"objects":       objects,
+		"objects":       status.Workloads,
 		"name":          releaseDetail.Name,
 		"namespace":     releaseDetail.Namespace,
 		"version":       releaseDetail.Version,
-		"status":        releaseDetail.Info.Status,
+		"status":        status.Status,
 		"chart_name":    releaseDetail.Chart.Name() + "-" + releaseDetail.Chart.Metadata.Version,
 		"chart_version": releaseDetail.Chart.Metadata.Version,
 		"app_version":   releaseDetail.Chart.AppVersion(),
@@ -197,6 +197,11 @@ func (h *Helm) Create(requestParams interface{}) *utils.Response {
 	_, err = clientInstall.Run(chart, values)
 	if err != nil {
 		klog.Errorf("install release error: %s", err)
+		clientUnInstall := action.NewUninstall(actionConfig)
+		_, err1 := clientUnInstall.Run(releaseName)
+		if err1 != nil {
+			klog.Errorf("uninstall release error: %s", err)
+		}
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
 	}
 	return &utils.Response{Code: code.Success, Msg: "Success"}
@@ -223,6 +228,7 @@ func (h *Helm) Update(requestParams interface{}) *utils.Response {
 		klog.Errorf("init helm config error: %+v", err)
 		return &utils.Response{Code: code.ApplyError, Msg: err.Error()}
 	}
+	actionConfig.Releases.MaxHistory = 3
 
 	clientInstall := action.NewUpgrade(actionConfig)
 	clientInstall.Namespace = queryParams.Namespace
@@ -317,7 +323,7 @@ const (
 type ReleaseRuntimeStatus struct {
 	Name      string `json:"name"`
 	Status    string `json:"status"`
-	Workloads []runtime.Object
+	Workloads []*unstructured.Unstructured
 }
 
 func (h *Helm) Status(reqParams interface{}) *utils.Response {
@@ -376,112 +382,122 @@ func (h *Helm) GetReleaseObjects(release *release.Release) []*unstructured.Unstr
 }
 
 func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads bool) *ReleaseRuntimeStatus {
-	var workloads []runtime.Object
+	var workloads []*unstructured.Unstructured
 	status := &ReleaseRuntimeStatus{
 		Name:      release.Name,
 		Status:    ReleaseStatusRunning,
 		Workloads: workloads,
 	}
-	isAllReady := true
+	//isAllReady := true
 	objects := h.GetReleaseObjects(release)
-	for _, object := range objects {
-		switch object.GetKind() {
-		case "Pod":
-			pod, err := h.KubeClient.ClientSet.CoreV1().Pods(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+	namespace := release.Namespace
+	for i, object := range objects {
+		if utils.Contains(WorkloadKinds, object.GetKind()) {
+			obj, err := h.DynamicClient.Resource(*WorkloadGVRMap[object.GetKind()]).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+				if withWorkloads {
+					workloads = append(workloads, object)
+				}
+				continue
+			}
+			if withWorkloads {
+				workloads = append(workloads, obj)
+			}
+			podLabels, ok, err := unstructured.NestedStringMap(obj.Object, "spec", "selector", "matchLabels")
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s labels error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+				if withWorkloads {
+					workloads = append(workloads, obj)
+				}
+				continue
+			}
+			if !ok {
+				klog.Errorf("get namespace %s workload %s/%s labels error", namespace, object.GetKind(), object.GetName())
+				if withWorkloads {
+					workloads = append(workloads, obj)
+				}
+				continue
+			}
+			pods, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).List(h.context, metav1.ListOptions{
+				LabelSelector: labels.Set(podLabels).AsSelector().String(),
+			})
+			if err != nil {
+				klog.Errorf("get namespace %s workload %s/%s pods error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+			}
+			if pods != nil {
+				for idx, _ := range pods.Items {
+					if withWorkloads {
+						workloads = append(workloads, &pods.Items[idx])
+					}
+					var p v1.Pod
+					err = runtime.DefaultUnstructuredConverter.FromUnstructured(pods.Items[idx].Object, &p)
+					if err != nil {
+						klog.Errorf("convert to pod error: %s", err.Error())
+					} else {
+						status.Status = h.GetPodStatus(status.Status, &p)
+					}
+				}
+			}
+		} else if object.GetKind() == "Pod" {
+			pod, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
 			if err != nil {
 				klog.Warning("get release pods error: ", err)
-				isAllReady = false
 			} else {
-				isAllReady = h.pod.IsPodReady(pod)
 				if withWorkloads {
 					workloads = append(workloads, pod)
 				}
-			}
-		case "Deployment":
-			deployment, err := h.ClientSet.AppsV1().Deployments(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-				isAllReady = false
-			} else {
-				var podList *v1.PodList
-				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
-				if withWorkloads {
-					for idx, _ := range podList.Items {
-						workloads = append(workloads, &podList.Items[idx])
-					}
+				var p v1.Pod
+				err = runtime.DefaultUnstructuredConverter.FromUnstructured(pod.Object, &p)
+				if err != nil {
+					klog.Errorf("convert to pod error: %s", err.Error())
+				} else {
+					status.Status = h.GetPodStatus(status.Status, &p)
 				}
 			}
-		case "DaemonSet":
-			deployment, err := h.ClientSet.AppsV1().DaemonSets(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+		} else if object.GetKind() == "Service" {
+			svc, err := h.DynamicClient.Resource(*ServiceGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
 			if err != nil {
-				klog.Warning("get release pods error: ", err)
-				isAllReady = false
+				klog.Warning("get release service error: ", err)
 			} else {
-				var podList *v1.PodList
-				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
 				if withWorkloads {
-					for idx, _ := range podList.Items {
-						workloads = append(workloads, &podList.Items[idx])
-					}
+					workloads = append(workloads, svc)
 				}
 			}
-		case "StatefulSet":
-			deployment, err := h.ClientSet.AppsV1().StatefulSets(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-				isAllReady = false
-			} else {
-				var podList *v1.PodList
-				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
-				if withWorkloads {
-					for idx, _ := range podList.Items {
-						workloads = append(workloads, &podList.Items[idx])
-					}
-				}
+		} else {
+			if withWorkloads {
+				workloads = append(workloads, objects[i])
 			}
-		case "Job":
-			deployment, err := h.ClientSet.BatchV1().Jobs(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-				isAllReady = false
-			} else {
-				var podList *v1.PodList
-				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
-				if withWorkloads {
-					for idx, _ := range podList.Items {
-						workloads = append(workloads, &podList.Items[idx])
-					}
-				}
-			}
-		case "ReplicaSet":
-			deployment, err := h.ClientSet.AppsV1().ReplicaSets(release.Namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-				isAllReady = false
-			} else {
-				var podList *v1.PodList
-				isAllReady, podList = h.GetPodsReady(release.Namespace, deployment.Spec.Template.Labels)
-				if withWorkloads {
-					for idx, _ := range podList.Items {
-						workloads = append(workloads, &podList.Items[idx])
-					}
-				}
-			}
-		}
-		if !isAllReady {
-			break
 		}
 	}
-	if isAllReady {
+	status.Workloads = workloads
+	//if isAllReady {
+	//	return status
+	//}
+	//secondDuration := time.Now().Sub(release.Info.LastDeployed.Time).Seconds()
+	//if secondDuration > 600 {
+	//	status.Status = ReleaseStatusRunningFault
+	//} else {
+	//	status.Status = ReleaseStatusNotReady
+	//}
+	return status
+}
+
+func (h *Helm) GetPodStatus(status string, pod *v1.Pod) string {
+	if status == ReleaseStatusRunningFault {
 		return status
 	}
-	secondDuration := time.Now().Sub(release.Info.LastDeployed.Time).Seconds()
-	if secondDuration > 600 {
-		status.Status = ReleaseStatusRunningFault
-	} else {
-		status.Status = ReleaseStatusNotReady
+	podReady := h.pod.IsPodReady(pod)
+	if podReady {
+		return status
 	}
-	return status
+	secondDuration := time.Now().Sub(pod.CreationTimestamp.Time).Seconds()
+	klog.Infof("%d", secondDuration)
+	if secondDuration > 600 {
+		return ReleaseStatusRunningFault
+	} else {
+		return ReleaseStatusNotReady
+	}
 }
 
 func (h *Helm) GetPodsReady(namespace string, labelsMap map[string]string) (bool, *v1.PodList) {
