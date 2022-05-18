@@ -118,7 +118,12 @@ type ApplyParams struct {
 
 func (d *DynamicResource) ApplyYaml(applyParams interface{}) *utils.Response {
 	params := &ApplyParams{}
-	json.Unmarshal(applyParams.([]byte), params)
+	if s, ok := applyParams.(string); ok {
+		json.Unmarshal([]byte(s), params)
+	} else {
+		json.Unmarshal(applyParams.([]byte), params)
+	}
+
 	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader([]byte(params.YamlStr))))
 	var res []string
 	applyErr := false
