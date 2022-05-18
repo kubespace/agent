@@ -179,7 +179,11 @@ func (ws *WebSocket) updateAgent() {
 		return
 	}
 	klog.Infof("agent yaml: %s", agentYaml)
-	resp := ws.ApplyResource.ApplyYaml(agentYaml)
+	applyYaml := map[string]string{
+		"yaml": agentYaml,
+	}
+	b, _ := json.Marshal(applyYaml)
+	resp := ws.ApplyResource.ApplyYaml(b)
 	if !resp.IsSuccess() {
 		klog.Errorf("apply agent yaml error: %s", resp.Msg)
 	}
