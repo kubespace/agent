@@ -26,7 +26,7 @@ type Ingress struct {
 
 var (
 	NetworkIngressGVR = &schema.GroupVersionResource{
-		Group:    "networking",
+		Group:    "networking.k8s.io",
 		Version:  "v1",
 		Resource: "ingresses",
 	}
