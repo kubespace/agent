@@ -144,9 +144,7 @@ func (d *DynamicResource) ApplyYaml(applyParams interface{}) *utils.Response {
 		//data, err := json.Marshal(obj)
 
 		// Create or Update
-		_, err = dr.Patch(d.context, obj.GetName(), types.ApplyPatchType, buf, metav1.PatchOptions{
-			FieldManager: "ospagent",
-		})
+		_, err = dr.Patch(d.context, obj.GetName(), types.ApplyPatchType, buf, metav1.PatchOptions{})
 		if err != nil {
 			applyErr = true
 			res = append(res, obj.GetKind()+"/"+obj.GetName()+" error : "+err.Error())
