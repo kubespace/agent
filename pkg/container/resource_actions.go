@@ -67,8 +67,10 @@ func NewResourceActions(
 
 	ns := resource.NewNamespace(kubeClient, sendResponse, watch)
 	nsActions := ActionHandler{
-		LIST: ns.List,
-		GET:  ns.Get,
+		LIST:       ns.List,
+		GET:        ns.Get,
+		DELETE:     ns.Delete,
+		UPDATEYAML: ns.UpdateYaml,
 	}
 	actionHandlers["namespace"] = nsActions
 

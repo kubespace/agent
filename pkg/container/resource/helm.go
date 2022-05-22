@@ -455,6 +455,46 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 					status.Status = h.GetPodStatus(status.Status, &p)
 				}
 			}
+		} else if object.GetKind() == "CronJob" {
+			cronjob, err := h.DynamicClient.Resource(*CronJobGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
+			if err != nil {
+				klog.Warning("get release cronjob error: ", err)
+			} else {
+				if withWorkloads {
+					workloads = append(workloads, cronjob)
+				}
+			}
+			jobs, err := h.KubeClient.JobInformer().Lister().Jobs(namespace).List(labels.Everything())
+			if err != nil {
+				klog.Errorf("get cronjob jobs error: %s", err.Error())
+			} else {
+				for _, job := range jobs {
+					for _, ref := range job.OwnerReferences {
+						if ref.UID == cronjob.GetUID() {
+							pods, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).List(h.context, metav1.ListOptions{
+								LabelSelector: labels.Set(job.Labels).AsSelector().String(),
+							})
+							if err != nil {
+								klog.Errorf("get namespace %s workload %s/%s pods error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
+							}
+							if pods != nil {
+								for idx, _ := range pods.Items {
+									if withWorkloads {
+										workloads = append(workloads, &pods.Items[idx])
+									}
+									var p v1.Pod
+									err = runtime.DefaultUnstructuredConverter.FromUnstructured(pods.Items[idx].Object, &p)
+									if err != nil {
+										klog.Errorf("convert to pod error: %s", err.Error())
+									} else {
+										status.Status = h.GetPodStatus(status.Status, &p)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		} else if object.GetKind() == "Service" {
 			svc, err := h.DynamicClient.Resource(*ServiceGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
 			if err != nil {
@@ -471,15 +511,6 @@ func (h *Helm) GetReleaseRuntimeStatus(release *release.Release, withWorkloads b
 		}
 	}
 	status.Workloads = workloads
-	//if isAllReady {
-	//	return status
-	//}
-	//secondDuration := time.Now().Sub(release.Info.LastDeployed.Time).Seconds()
-	//if secondDuration > 600 {
-	//	status.Status = ReleaseStatusRunningFault
-	//} else {
-	//	status.Status = ReleaseStatusNotReady
-	//}
 	return status
 }
 
@@ -498,81 +529,4 @@ func (h *Helm) GetPodStatus(status string, pod *v1.Pod) string {
 	} else {
 		return ReleaseStatusNotReady
 	}
-}
-
-func (h *Helm) GetPodsReady(namespace string, labelsMap map[string]string) (bool, *v1.PodList) {
-	podList, err := h.GetPodList(namespace, labelsMap)
-	if err != nil {
-		klog.Warning("get release pods error: ", err)
-		return false, nil
-	}
-	for _, pod := range podList.Items {
-		if isReady := h.pod.IsPodReady(&pod); !isReady {
-			return false, nil
-		}
-	}
-	return true, podList
-}
-
-func (h *Helm) GetPodList(namespace string, labelsMap map[string]string) (*v1.PodList, error) {
-	labelSelector := metav1.LabelSelector{MatchLabels: labelsMap}
-	return h.ClientSet.CoreV1().Pods(namespace).List(h.context, metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	})
-}
-
-func (h *Helm) GetReleaseRuntimeObjects(release *release.Release) []*unstructured.Unstructured {
-	var workloads []*unstructured.Unstructured
-	objects := h.GetReleaseObjects(release)
-	namespace := release.Namespace
-	for i, object := range objects {
-		if utils.Contains(WorkloadKinds, object.GetKind()) {
-			obj, err := h.DynamicClient.Resource(*WorkloadGVRMap[object.GetKind()]).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Errorf("get namespace %s workload %s/%s error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
-				workloads = append(workloads, object)
-				continue
-			}
-			workloads = append(workloads, obj)
-			podLabels, ok, err := unstructured.NestedStringMap(obj.Object, "spec", "selector", "matchLabels")
-			if err != nil {
-				klog.Errorf("get namespace %s workload %s/%s labels error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
-				workloads = append(workloads, obj)
-				continue
-			}
-			if !ok {
-				klog.Errorf("get namespace %s workload %s/%s labels error", namespace, object.GetKind(), object.GetName())
-				workloads = append(workloads, obj)
-				continue
-			}
-			pods, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).List(h.context, metav1.ListOptions{
-				LabelSelector: labels.Set(podLabels).AsSelector().String(),
-			})
-			if err != nil {
-				klog.Errorf("get namespace %s workload %s/%s pods error: %s", namespace, object.GetKind(), object.GetName(), err.Error())
-			}
-			if pods != nil {
-				for idx, _ := range pods.Items {
-					workloads = append(workloads, &pods.Items[idx])
-				}
-			}
-		} else if object.GetKind() == "Pod" {
-			pod, err := h.DynamicClient.Resource(*PodGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release pods error: ", err)
-			} else {
-				workloads = append(workloads, pod)
-			}
-		} else if object.GetKind() == "Service" {
-			svc, err := h.DynamicClient.Resource(*ServiceGVR).Namespace(namespace).Get(h.context, object.GetName(), metav1.GetOptions{})
-			if err != nil {
-				klog.Warning("get release service error: ", err)
-			} else {
-				workloads = append(workloads, svc)
-			}
-		} else {
-			workloads = append(workloads, objects[i])
-		}
-	}
-	return workloads
 }
