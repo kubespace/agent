@@ -28,7 +28,7 @@ type BuildConfigMap struct {
 	NameSpace  string            `json:"namespace"`
 	Keys       []string          `json:"keys"`
 	Labels     map[string]string `json:"labels"`
-	CreateTime string            `json:"create_time"`
+	CreateTime metav1.Time       `json:"create_time"`
 	Data       map[string]string `json:"data"`
 }
 
@@ -60,7 +60,7 @@ func (c *ConfigMap) ToBuildConfigMap(cm *v1.ConfigMap) *BuildConfigMap {
 		Name:       cm.Name,
 		NameSpace:  cm.Namespace,
 		Labels:     cm.Labels,
-		CreateTime: fmt.Sprint(cm.CreationTimestamp),
+		CreateTime: cm.CreationTimestamp,
 		Data:       cm.Data,
 	}
 

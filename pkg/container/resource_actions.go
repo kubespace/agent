@@ -144,6 +144,7 @@ func NewResourceActions(
 		GET:        configMap.Get,
 		UPDATEYAML: configMap.UpdateYaml,
 		//CREATE: 	configMap.Create,
+		DELETE: configMap.Delete,
 	}
 	actionHandlers["configMap"] = configMapActions
 
@@ -248,8 +249,10 @@ func NewResourceActions(
 
 	secret := resource.NewSecret(kubeClient, watch)
 	secretActions := ActionHandler{
-		LIST: secret.List,
-		GET:  secret.Get,
+		LIST:       secret.List,
+		GET:        secret.Get,
+		UPDATEYAML: secret.UpdateYaml,
+		DELETE:     secret.Delete,
 	}
 	actionHandlers["secret"] = secretActions
 

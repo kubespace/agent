@@ -223,6 +223,6 @@ func (c *Cluster) WorkspaceOverview(requestParams interface{}) *utils.Response {
 	if err != nil {
 		return &utils.Response{Code: code.ListError, Msg: err.Error()}
 	}
-	bc.PVCNum = len(secret)
+	bc.SecretNum = len(secret)
 	return &utils.Response{Code: code.Success, Msg: "Success", Data: bc}
 }

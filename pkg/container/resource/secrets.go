@@ -7,6 +7,7 @@ import (
 	"github.com/kubespace/agent/pkg/utils"
 	"github.com/kubespace/agent/pkg/utils/code"
 	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -31,7 +32,7 @@ type BuildSecret struct {
 	NameSpace  string            `json:"namespace"`
 	Keys       []string          `json:"keys"`
 	Labels     map[string]string `json:"labels"`
-	CreateTime string            `json:"create_time"`
+	CreateTime metav1.Time       `json:"create_time"`
 	Type       v1.SecretType     `json:"type"`
 	Data       map[string][]byte `json:"data"`
 }
@@ -53,7 +54,7 @@ func (s *Secret) ToBuildSecret(se *v1.Secret) *BuildSecret {
 		NameSpace:  se.Namespace,
 		Labels:     se.Labels,
 		Type:       se.Type,
-		CreateTime: fmt.Sprint(se.CreationTimestamp),
+		CreateTime: se.CreationTimestamp,
 		Data:       se.Data,
 	}
 	return sData
