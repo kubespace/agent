@@ -7,6 +7,7 @@ import (
 	"github.com/kubespace/agent/pkg/kubernetes"
 	"github.com/kubespace/agent/pkg/utils"
 	"github.com/kubespace/agent/pkg/utils/code"
+	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiExtensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,6 +17,18 @@ import (
 	"k8s.io/klog"
 )
 
+var NewCRDGVR = &schema.GroupVersionResource{
+	Group:    "apiextensions.k8s.io",
+	Version:  "v1",
+	Resource: "customresourcedefinition",
+}
+
+var CRDGVR = &schema.GroupVersionResource{
+	Group:    "apiextensions.k8s.io",
+	Version:  "v1beta1",
+	Resource: "customresourcedefinition",
+}
+
 type Crd struct {
 	*kubernetes.KubeClient
 	*DynamicResource
@@ -23,14 +36,14 @@ type Crd struct {
 }
 
 func NewCrd(kubeClient *kubernetes.KubeClient) *Crd {
+	crdGvr := CRDGVR
+	if kubernetes.VersionGreaterThan16(kubeClient.Version) {
+		crdGvr = NewCRDGVR
+	}
 	n := &Crd{
-		KubeClient: kubeClient,
-		DynamicResource: NewDynamicResource(kubeClient, &schema.GroupVersionResource{
-			Group:    "apiextensions.k8s.io",
-			Version:  "v1beta1",
-			Resource: "customresourcedefinition",
-		}),
-		context: context.Background(),
+		KubeClient:      kubeClient,
+		DynamicResource: NewDynamicResource(kubeClient, crdGvr),
+		context:         context.Background(),
 	}
 	return n
 }
@@ -41,24 +54,51 @@ type CrdQueryParams struct {
 }
 
 func (c *Crd) List(requestParams interface{}) *utils.Response {
-	crds, err := c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().List(c.context, metav1.ListOptions{})
-	if err != nil {
-		return &utils.Response{
-			Code: code.ListError,
-			Msg:  err.Error(),
+	if kubernetes.VersionGreaterThan16(c.Version) {
+		crds, err := c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().List(c.context, metav1.ListOptions{})
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
 		}
+		var crdsList []map[string]interface{}
+		for _, crd := range crds.Items {
+			version := ""
+			for _, ver := range crd.Spec.Versions {
+				if ver.Storage {
+					version = ver.Name
+				}
+			}
+			crdsList = append(crdsList, map[string]interface{}{
+				"name":        crd.Name,
+				"scope":       crd.Spec.Scope,
+				"version":     version,
+				"group":       crd.Spec.Group,
+				"create_time": crd.CreationTimestamp,
+			})
+		}
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: crdsList}
+	} else {
+		crds, err := c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().List(c.context, metav1.ListOptions{})
+		if err != nil {
+			return &utils.Response{Code: code.ListError, Msg: err.Error()}
+		}
+		var crdsList []map[string]interface{}
+		for _, crd := range crds.Items {
+			version := crd.Spec.Version
+			for _, ver := range crd.Spec.Versions {
+				if ver.Storage {
+					version = ver.Name
+				}
+			}
+			crdsList = append(crdsList, map[string]interface{}{
+				"name":        crd.Name,
+				"scope":       crd.Spec.Scope,
+				"version":     version,
+				"group":       crd.Spec.Group,
+				"create_time": crd.CreationTimestamp,
+			})
+		}
+		return &utils.Response{Code: code.Success, Msg: "Success", Data: crdsList}
 	}
-	var crdsList []map[string]interface{}
-	for _, crd := range crds.Items {
-		crdsList = append(crdsList, map[string]interface{}{
-			"name":        crd.Name,
-			"scope":       crd.Spec.Scope,
-			"version":     crd.Spec.Version,
-			"group":       crd.Spec.Group,
-			"create_time": crd.CreationTimestamp,
-		})
-	}
-	return &utils.Response{Code: code.Success, Msg: "Success", Data: crdsList}
 }
 
 func (c *Crd) Get(requestParams interface{}) *utils.Response {
@@ -67,14 +107,24 @@ func (c *Crd) Get(requestParams interface{}) *utils.Response {
 	if queryParams.Name == "" {
 		return &utils.Response{Code: code.ParamsError, Msg: "Name is blank"}
 	}
-	crd, err := c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(c.context, queryParams.Name, metav1.GetOptions{})
+	var crd runtime.Object
+	var err error
+	if kubernetes.VersionGreaterThan16(c.KubeClient.Version) {
+		crd, err = c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(c.context, queryParams.Name, metav1.GetOptions{})
+	} else {
+		crd, err = c.KubeClient.ApiExtensionsClientSet.ApiextensionsV1beta1().CustomResourceDefinitions().Get(c.context, queryParams.Name, metav1.GetOptions{})
+	}
 	if err != nil {
 		return &utils.Response{Code: code.GetError, Msg: err.Error()}
 	}
 	if queryParams.Output == "yaml" {
 		const mediaType = runtime.ContentTypeYAML
 		rscheme := runtime.NewScheme()
-		apiExtensionsv1beta1.AddToScheme(rscheme)
+		if kubernetes.VersionGreaterThan16(c.KubeClient.Version) {
+			apiExtensionsv1.AddToScheme(rscheme)
+		} else {
+			apiExtensionsv1beta1.AddToScheme(rscheme)
+		}
 		codecs := serializer.NewCodecFactory(rscheme)
 		info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
 		if !ok {

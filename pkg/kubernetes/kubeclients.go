@@ -80,3 +80,10 @@ func VersionGreaterThan19(ver *version.Info) bool {
 	}
 	return true
 }
+
+func VersionGreaterThan16(ver *version.Info) bool {
+	if utilversion.MustParseSemantic(ver.GitVersion).LessThan(utilversion.MustParseSemantic("v1.16.0")) {
+		return false
+	}
+	return true
+}

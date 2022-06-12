@@ -21,6 +21,7 @@ const (
 	CLOSELOG   = "closeLog"
 	APPLY      = "apply"
 	STATUS     = "status"
+	LISTOBJS   = "list_objects"
 )
 
 type Handler func(interface{}) *utils.Response
@@ -144,7 +145,8 @@ func NewResourceActions(
 		GET:        configMap.Get,
 		UPDATEYAML: configMap.UpdateYaml,
 		//CREATE: 	configMap.Create,
-		DELETE: configMap.Delete,
+		DELETE:   configMap.Delete,
+		LISTOBJS: configMap.ListObjects,
 	}
 	actionHandlers["configMap"] = configMapActions
 
@@ -163,6 +165,7 @@ func NewResourceActions(
 		GET:        persistentVolumeClaim.Get,
 		UPDATEYAML: persistentVolumeClaim.UpdateYaml,
 		DELETE:     persistentVolumeClaim.Delete,
+		LISTOBJS:   persistentVolumeClaim.ListObjects,
 	}
 	actionHandlers["persistentVolumeClaim"] = persistentVolumeClaimActions
 
@@ -253,6 +256,7 @@ func NewResourceActions(
 		GET:        secret.Get,
 		UPDATEYAML: secret.UpdateYaml,
 		DELETE:     secret.Delete,
+		LISTOBJS:   secret.ListObjects,
 	}
 	actionHandlers["secret"] = secretActions
 

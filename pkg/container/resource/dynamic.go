@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"io"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeYaml "k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/apimachinery/pkg/types"
@@ -88,6 +89,29 @@ type DynamicUpdateParams struct {
 	Namespace string `json:"namespace"`
 	YamlStr   string `json:"yaml"`
 	Kind      string `json:"kind"`
+}
+
+type DynamicListParams struct {
+	Namespace string            `json:"namespace"`
+	Labels    map[string]string `json:"labels"`
+}
+
+func (d *DynamicResource) ListObjects(listParams interface{}) *utils.Response {
+	params := &DynamicListParams{}
+	json.Unmarshal(listParams.([]byte), params)
+	var selector labels.Selector
+	if params.Labels != nil {
+		selector = labels.Set(params.Labels).AsSelector()
+	} else {
+		selector = labels.Everything()
+	}
+	objs, err := d.DynamicClient.Resource(*d.GroupVersionResource).Namespace(params.Namespace).List(d.context, metav1.ListOptions{LabelSelector: selector.String()})
+
+	if err != nil {
+		klog.Error("list objects error: ", err)
+		return &utils.Response{Code: code.UpdateError, Msg: err.Error()}
+	}
+	return &utils.Response{Code: code.Success, Data: objs.Items}
 }
 
 func (d *DynamicResource) UpdateYaml(updateParams interface{}) *utils.Response {
