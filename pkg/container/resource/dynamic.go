@@ -140,6 +140,51 @@ type ApplyParams struct {
 	YamlStr string `json:"yaml"`
 }
 
+func (d *DynamicResource) UpdateGVRYaml(applyParams interface{}) *utils.Response {
+	params := &ApplyParams{}
+	if s, ok := applyParams.(string); ok {
+		json.Unmarshal([]byte(s), params)
+	} else {
+		json.Unmarshal(applyParams.([]byte), params)
+	}
+
+	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader([]byte(params.YamlStr))))
+	var res []string
+	applyErr := false
+	for {
+		buf, err := multidocReader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return &utils.Response{Code: code.ParamsError, Msg: "read yaml error: " + err.Error()}
+		}
+		obj, dr, err := d.buildDynamicResourceClient(buf)
+		if err != nil {
+			applyErr = true
+			res = append(res, err.Error())
+			continue
+		}
+		//data, err := json.Marshal(obj)
+
+		// Create or Update
+		_, err = dr.Update(d.context, obj, metav1.UpdateOptions{
+			FieldManager: "kubespace",
+		})
+		if err != nil {
+			applyErr = true
+			res = append(res, obj.GetKind()+"/"+obj.GetName()+" error : "+err.Error())
+		} else {
+			res = append(res, obj.GetKind()+"/"+obj.GetName()+" applied successful.")
+		}
+	}
+	if applyErr {
+		klog.Error(res)
+		return &utils.Response{Code: code.ApplyError, Msg: strings.Join(res, "\n")}
+	}
+	return &utils.Response{Code: code.Success, Msg: strings.Join(res, "\n")}
+}
+
 func (d *DynamicResource) ApplyYaml(applyParams interface{}) *utils.Response {
 	params := &ApplyParams{}
 	if s, ok := applyParams.(string); ok {

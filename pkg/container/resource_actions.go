@@ -14,6 +14,7 @@ const (
 	CREATE     = "create"
 	DELETE     = "delete"
 	UPDATEYAML = "update_yaml"
+	UPDATEGVR  = "update_gvr"
 	UPDATEOBJ  = "update_obj"
 	EXEC       = "exec"
 	STDIN      = "stdin"
@@ -47,9 +48,10 @@ func NewResourceActions(
 
 	cluster := resource.NewCluster(kubeClient, watch)
 	clusterActions := ActionHandler{
-		GET:    cluster.Get,
-		APPLY:  cluster.ApplyYaml,
-		CREATE: cluster.CreateYaml,
+		GET:       cluster.Get,
+		APPLY:     cluster.ApplyYaml,
+		CREATE:    cluster.CreateYaml,
+		UPDATEGVR: cluster.UpdateGVRYaml,
 	}
 	actionHandlers["cluster"] = clusterActions
 
@@ -268,7 +270,6 @@ func NewResourceActions(
 		UPDATEOBJ: helm.Update,
 		DELETE:    helm.Delete,
 		STATUS:    helm.Status,
-		//GET:  secret.Get,
 	}
 	actionHandlers["helm"] = helmActions
 
@@ -276,9 +277,16 @@ func NewResourceActions(
 	crdActions := ActionHandler{
 		LIST: crd.List,
 		GET:  crd.Get,
-		//GET:  secret.Get,
 	}
 	actionHandlers["crd"] = crdActions
+
+	cr := resource.NewCr(kubeClient)
+	crActions := ActionHandler{
+		LIST:   cr.ListCR,
+		GET:    cr.GetCR,
+		DELETE: cr.DeleteCrs,
+	}
+	actionHandlers["cr"] = crActions
 
 	return &ResourceActions{
 		KubeClient:            kubeClient,
